@@ -18,19 +18,23 @@ import BNAF
 ###########################
 ## Simulation parameters ##
 ###########################
-nmat=3  # matrix size
-ndim=2  # number of matrices
-nlayer=1 # number of layers
-alpha=[2] # number of nodes, for nlayer = 1  
-#alpha=[2,2]  # number of nodes, for nlayer = 2
+nmat = 2  # matrix size
+ndim = 2  # number of matrices
+nlayer = 1 # number of layers
+if(nlayer == 1):
+        alpha = [2] # number of nodes, for nlayer = 1
+elif(nlayer == 2):        
+        alpha = [2,2]  # number of nodes, for nlayer = 2
 mass = 1.0 # mass; 0.5 * m^2 * tr X^2
-tHooft = 0.0 # 't Hooft coupling lambda = g^2*N. 
+tHooft = 0.0 # 't Hooft coupling lambda = g^2*N.
+coeff_G = 1.0 # add coeff_G * TrG^2 to the Hamiltonian when info_gauge = True
 num_epochs = 100 
 num_batches = 10
 batch_size = 512
 lr = 0.01 # learning rate
 info_load = True # True -> NN parameters are loaded from trained_parameters.pth, False -> nothing
 info_save = True  # True -> NN parameters are saved in trained_parameters.pth, False -> nothing
+info_gauge = True # True -> add TrG^2-term to the Hamiltonian 
 #################################
 ## Create model with the masks ##
 #################################
@@ -41,6 +45,6 @@ elif(nlayer == 2):
 ##############
 ## Training ##
 ##############
-losses = training.train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save)
+losses = training.train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save, info_gauge, coeff_G)
 
 

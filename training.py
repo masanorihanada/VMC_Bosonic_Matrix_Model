@@ -2,7 +2,7 @@ import torch
 import observables 
 import BNAF
 
-def train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save):
+def train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save, info_gauge, coeff_G):
 
 
     nboson = ndim * (nmat * nmat - 1)
@@ -19,7 +19,8 @@ def train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft
     ### Training ###
     ################
     for epoch in range(num_epochs):
-        sum_loss_batch = 0
+        loss_epoch = 0
+        trG2_epoch = 0
         for ibatch in range(num_batches):
             #optimizer.zero_grad() # reset values of derivatives to zero
             #####################################################################
@@ -39,14 +40,26 @@ def train(wave_function, batch_size, num_batches, num_epochs, ndim, nmat, tHooft
             ### zvec, jacobian, etc, are needed to get the kinetic term. ###
             ################################################################
             optimizer.zero_grad() # reset values of derivatives to zero (backproparagtion is used to calculate kinetic energy)
-            energy = observables.calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size)
-            ### cost function = energy, up to normalization ###
-            loss = torch.sum(energy)/batch_size/(nmat*nmat)
-            sum_loss_batch += loss
+            if(info_gauge == True):
+                energy, trG2 = observables.calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size)
+                trG2_batch = torch.sum(trG2)/batch_size/(nmat*nmat)
+                ### cost function = energy + c * TrG^2, up to normalization ###
+                loss_batch = torch.sum(energy)/batch_size/(nmat*nmat) + trG2_batch * coeff_G
+                trG2_epoch += trG2_batch
+            else:
+                energy = observables.calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size)
+                ### cost function = energy, up to normalization ###
+                loss_batch = torch.sum(energy)/batch_size/(nmat*nmat)
+            
+           
+            loss_epoch += loss_batch
             optimizer.zero_grad() # reset values of derivatives to zero before Gradient Descent
-            loss.backward()
+            loss_batch.backward()
             optimizer.step()
-        print("epoch=",epoch+1,"E/N^2=",sum_loss_batch.item()/num_batches)
+        if(info_gauge == True):    
+            print("epoch=",epoch+1,"E/N^2=",loss_epoch.item()/num_batches,"G/N^2=", trG2_epoch.item()/num_batches)
+        else:
+            print("epoch=",epoch+1,"E/N^2=",loss_epoch.item()/num_batches)
     ######################################################
     ######################################################
     ### Save the parameters of the model and optimizer ###
