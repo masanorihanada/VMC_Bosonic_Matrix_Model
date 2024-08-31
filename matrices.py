@@ -1,7 +1,18 @@
-#import numpy as np
+#########################################################################
+#### Based on Xizhi Han's code.  ########################################
+### See https://github.com/hanxzh94/minimal_BMN_MQM for the original. ###
+#########################################################################
+### "xmat" is X_{ij}, i,j = 1,...,nmat       ############################
+### "xvec" is X_a, a = 1,...,nmat*nmat-1     ############################
+###  X_{ij} = \sum_a X_a T^a_{ij}            ############################
+###  SU(N) generators T^a are normalized as Tr(T^a*T^b) = \delta^{ab} ###
+######################################################################### 
 import torch
 class SU():
     def __init__(self, nmat, batch_size):
+        ############################
+        ### SU(N) generators T^a ###
+        ############################        
         self.generator = []
         #########################
         ### off-diagonal part ###
@@ -31,7 +42,9 @@ class SU():
 
         self.generator_array = torch.stack(self.generator)
      #    super().__init__(self.generator)
-
+    #####################
+    ### X_a -> X_{ij} ###
+    #####################
     def vector_to_matrix(self, xvec, ndim, nmat, batch_size):
         # for each ibatch, xvec is d*(N^2-1)-dim real vector; xvec(ibatch,idim,ivec)
         # xmat(idim,imat,jmat) is nmat*nmat traceless Hermitian; xmat(ibatch,idim,imat,jmat)
@@ -41,7 +54,9 @@ class SU():
         xtemp = xvec.reshape(batch_size,ndim,nmat*nmat-1)
         xmat = torch.einsum("abc,cij->abji",xtemp,self.generator_array)
         return xmat
-
+    #####################
+    ### X_{ij} -> X_a ###
+    #####################
     def matrix_to_vector(self, xmat, ndim, nmat, batch_size):
         # xvec is d*(N^2-1)-dim real vector; xvec(ibatch,idim,ivec)
         # xmat(idim,imat,jmat) is nmat*nmat traceless Hermitian; xmat(ibatch,idim,imat,jmat)
