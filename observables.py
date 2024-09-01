@@ -54,7 +54,6 @@ def calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size):
     kinetic = torch.stack(kinetic_values)
 
     return kinetic
-
 ###########################################
 ### total energy = kinetic + potential  ###
 ###########################################
@@ -130,3 +129,14 @@ def calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft
     energy = pot + kin
     
     return energy, trG2
+
+######################################################
+### center of wave packet <\hat{x}> and <\hat{p}>  ###
+######################################################
+def center_of_wave_packet(phase, xvec):
+
+    center_x = xvec 
+    sum_phase = torch.sum(phase)
+    center_p = torch.autograd.grad(outputs=sum_phase, inputs=xvec, create_graph=True, retain_graph=True)[0]
+    
+    return center_x, center_p
