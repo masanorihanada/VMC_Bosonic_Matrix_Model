@@ -3,7 +3,7 @@ import observables
 import BNAF
 import matrices
 
-def train(wave_function, wave_function_phase, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save, info_gauge, coeff_G, info_yq, coeff_yq, yvec, qvec):
+def train(wave_function, wave_function_phase, batch_size, num_batches, num_epochs, ndim, nmat, tHooft, mass, lr, info_load, info_save, info_gauge, coeff_G, info_yq, coeff_yq, yvec, qvec, device):
 
     nboson = ndim * (nmat * nmat - 1)
     #optimizer = torch.optim.AdamW(wave_function.parameters(), lr)
@@ -14,7 +14,8 @@ def train(wave_function, wave_function_phase, batch_size, num_batches, num_epoch
     ### Load the parameters of the model and optimizer ###
     ######################################################
     if(info_load == True):
-        checkpoint = torch.load('./trained_parameters.pth', weights_only=True)
+        ##checkpoint = torch.load('./trained_parameters.pth', weights_only=True)
+        checkpoint = torch.load('./trained_parameters.pth', map_location=device, weights_only=True)
         wave_function.load_state_dict(checkpoint['wave_function_state_dict'])
         wave_function_phase.load_state_dict(checkpoint['wave_function_phase_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -34,12 +35,16 @@ def train(wave_function, wave_function_phase, batch_size, num_batches, num_epoch
             #####################################################################
             # psi is the absolute value of wave function. phase is taken into account later. 
             # sample zvec from Gaussian
-            zvec = torch.randn(batch_size, nboson, requires_grad=True)
+            zvec = torch.randn(batch_size, nboson, device=device, requires_grad=True)
             # apply the BNAF flow and get xvec            
-            xvec = wave_function(zvec)
+            xvec = wave_function(zvec).to(device)
             # get Jacobian matrix and (log of) Jacobian
-            log_jac, jacobian_matrix = BNAF.log_Jacobian(wave_function, zvec, batch_size, ndim, nmat)
+            log_jac, jacobian_matrix = BNAF.log_Jacobian(wave_function, zvec, batch_size, ndim, nmat, device)
             log_psi_abs = -0.5 * log_jac -0.25 * torch.sum(zvec * zvec, axis=1)
+
+            #log_jac = log_jac.to(device)
+            #jacobian_matrix = jacobian_matrix.to(device)
+            #log_psi_abs = log_psi_abs.to(device)
             ################################################################
             ### Calculate the energy. xvec is needed for potential.   ######
             ### zvec, jacobian, etc, are needed to get the kinetic term. ###
@@ -47,14 +52,14 @@ def train(wave_function, wave_function_phase, batch_size, num_batches, num_epoch
             optimizer.zero_grad() # reset values of derivatives to zero (backproparagtion is used to calculate kinetic energy)
             optimizer_phase.zero_grad()
             if(info_gauge == True):
-                energy, trG2 = observables.calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size)
+                energy, trG2 = observables.calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size, device)
                 energy_batch = torch.sum(energy)/batch_size/(nmat*nmat)
                 trG2_batch = torch.sum(trG2)/batch_size/(nmat*nmat)
                 ### cost function = energy + c * TrG^2, up to normalization ###
                 loss_batch = energy_batch + trG2_batch * coeff_G
                 trG2_epoch += trG2_batch
             else:
-                energy = observables.calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size)
+                energy = observables.calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size, device)
                 ### cost function = energy, up to normalization ###
                 energy_batch = torch.sum(energy)/batch_size/(nmat*nmat)
                 loss_batch = energy_batch + 0  # "+0" is used to avoid sharing the ID
@@ -67,17 +72,17 @@ def train(wave_function, wave_function_phase, batch_size, num_batches, num_epoch
                 ## additional contribution to kinetic energy from the phase factor ##
                 kin_additional = 0.5 * torch.sum(center_p ** 2)/batch_size/(nmat*nmat)
                 energy_batch += kin_additional
-                loss_batch += kin_additional 
+                loss_batch_additional = kin_additional + 0 # "+0" is used to avoid sharing the ID
                 
                 center_x_batch = torch.sum(center_x, dim=0)/batch_size
                 center_p_batch = torch.sum(center_p, dim=0)/batch_size
 
                 # add constraint term to the loss
-                loss_batch += torch.sum( ( center_x_batch - yvec )**2 + ( center_p_batch - qvec )**2 ) * coeff_yq
+                loss_batch_additional += torch.sum( ( center_x_batch - yvec )**2 + ( center_p_batch - qvec )**2 ) * coeff_yq
                 # Add extra constraint to set the average phase to be zero.
                 # This mounts to a constant shift of the phase and hence does not change physics.
                 sum_phase = torch.sum(phase)
-                loss_batch += sum_phase ** 2  / batch_size ** 2
+                loss_batch_additional += sum_phase ** 2  / batch_size ** 2
             ###############################    
             ### Update model parameters ###
             ###############################
@@ -85,15 +90,21 @@ def train(wave_function, wave_function_phase, batch_size, num_batches, num_epoch
             energy_epoch += energy_batch
             optimizer.zero_grad() # reset values of derivatives to zero before Gradient Descent
             optimizer_phase.zero_grad()
-            loss_batch.backward()
+            loss_batch.backward(retain_graph=True)
+            if(info_yq == True):
+                loss_batch_additional.backward()
+                loss_epoch += loss_batch_additional
             optimizer.step()
             optimizer_phase.step()
+        ##############################################    
+        ### monitor average loss etc in each epoch ###
+        ##############################################
         if(info_gauge == True):    
             print("epoch=",epoch+1,"E/N^2=",energy_epoch.item()/num_batches,"G/N^2=", trG2_epoch.item()/num_batches)
         else:
             if(info_yq == True):
                 print("epoch=",epoch+1,"loss=",loss_epoch.item()/num_batches, "E/N^2=",energy_epoch.item()/num_batches)
-                su_instance = matrices.SU(nmat, 1)
+                su_instance = matrices.SU(nmat, 1, device)
                 center_x_mat = su_instance.vector_to_matrix(center_x_batch, ndim, nmat, 1)
                 center_p_mat = su_instance.vector_to_matrix(center_p_batch, ndim, nmat, 1)
 

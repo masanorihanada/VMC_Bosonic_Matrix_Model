@@ -3,7 +3,7 @@ import torch
 ####################################################################
 ### potential V(X) = Tr( 0.5 * m^2 * X_I^2 - 0.25 * [X_I,X_J]^2) ###
 ####################################################################
-def calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size):
+def calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size, device):
     nboson = ndim * (nmat * nmat - 1)
     #################
     ### mass term ###
@@ -12,9 +12,9 @@ def calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size):
     #######################
     ### commutator term ###
     #######################
-    su_instance = matrices.SU(nmat, batch_size)
+    su_instance = matrices.SU(nmat, batch_size, device)
     xmat = su_instance.vector_to_matrix(xvec, ndim, nmat, batch_size)
-    commutator = torch.zeros((batch_size,nmat,nmat), dtype=torch.complex64)
+    commutator = torch.zeros((batch_size,nmat,nmat), dtype=torch.complex64, device=device)
     quartic_values = []
     for isample in range(batch_size):
         quartic_value = 0
@@ -23,12 +23,12 @@ def calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size):
                 commutator = torch.matmul(xmat[isample, idim], xmat[isample, jdim]) - torch.matmul(xmat[isample, jdim], xmat[isample, idim])
                 quartic_value += 0.5 * tHooft / nmat * torch.sum(commutator * commutator.conj()).real
         quartic_values.append(quartic_value)
-    potential += torch.stack(quartic_values)   
+    potential += torch.stack(quartic_values).to(device)   
     return potential
 ############################################
 ### kinetic term 0.5 * [(d/dx)log_psi]^2 ###
 ############################################
-def calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size):
+def calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size, device):
 
     assert zvec.requires_grad
     
@@ -51,16 +51,16 @@ def calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size):
         kinetic_values.append(kinetic_value)
         
     # Concatenate kinetic values into a single differentiable tensor
-    kinetic = torch.stack(kinetic_values)
+    kinetic = torch.stack(kinetic_values).to(device)
 
     return kinetic
 ###########################################
 ### total energy = kinetic + potential  ###
 ###########################################
-def calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size):
+def calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size, device):
 
-    pot = calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size)
-    kin = calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size)
+    pot = calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size, device)
+    kin = calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size, device)
     energy = pot + kin
     
     return energy
@@ -71,7 +71,7 @@ def calc_total_energy(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, nd
 ### Both requires (d/dx)log_psi_abs, ###
 ### so let's compute them together   ###
 ########################################
-def calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size):
+def calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size, device):
 
     assert zvec.requires_grad
     
@@ -103,7 +103,7 @@ def calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat,
     ## trG2 (gauge violation) ##
     ############################
     deriv_log_psi_abs_batch = torch.stack(deriv_log_psi_abs_batch)
-    su_instance = matrices.SU(nmat, batch_size)
+    su_instance = matrices.SU(nmat, batch_size, device)
     # let's use matrix form because we don't want to compute structure constant of SU(N) group
     xmat = su_instance.vector_to_matrix(xvec, ndim, nmat, batch_size)
     deriv_log_psi_abs_batch_mat = su_instance.vector_to_matrix(deriv_log_psi_abs_batch, ndim, nmat, batch_size)
@@ -121,11 +121,10 @@ def calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat,
 ###########################################
 ### total energy = kinetic + potential  ###
 ###########################################
-def calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size):
+def calc_total_energy_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, tHooft, mass, ndim, nmat, batch_size, device):
 
-    pot = calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size)
-    #kin = calc_kinetic(zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size)
-    kin, trG2 = calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size)
+    pot = calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size, device)
+    kin, trG2 = calc_kinetic_and_gauge(xvec, zvec, jacobian_matrix, log_psi_abs, ndim, nmat, batch_size, device)
     energy = pot + kin
     
     return energy, trG2

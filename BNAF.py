@@ -22,7 +22,7 @@ import torch.nn.functional as F
 #      mask_o (tensor of shape (dim_out, dim_in)): "o" means off-diagonal, i.e., a binary mask where the weights from block i to block j and i < j are ones
 #
 # diagonal and off-diagonal should be distinguished because we impose the positivity constraint to the diagonal part
-def get_weight_mask(dim_in, dim_out, num_blocks):
+def get_weight_mask(dim_in, dim_out, num_blocks, device):
     # alpha will be used as num_blocks
     # "step" is the number of nodes in each layer in each block
     assert dim_in % num_blocks == 0 and dim_out % num_blocks == 0, f"invalid {dim_in}, {dim_out}, {num_blocks}"
@@ -30,13 +30,13 @@ def get_weight_mask(dim_in, dim_out, num_blocks):
     #################################################
     ## mask for the block diagonals of the weights ##
     #################################################
-    mask_d = torch.zeros((dim_out, dim_in))
+    mask_d = torch.zeros((dim_out, dim_in), device=device)
     for iblock in range(num_blocks):
         mask_d[iblock * step_out : (iblock + 1) * step_out, iblock * step_in : (iblock + 1) * step_in] += 1
     #####################################################
     ## mask for the block autoregressive off-diagonals ##
     #####################################################
-    mask_o = torch.ones((dim_out, dim_in))
+    mask_o = torch.ones((dim_out, dim_in), device=device)
     for iblock in range(num_blocks):
         mask_o[iblock * step_out : (iblock + 1) * step_out, iblock * step_in : ] -= 1
     return mask_d.float(), mask_o.float()
@@ -50,23 +50,25 @@ def get_weight_mask(dim_in, dim_out, num_blocks):
 ## Masked Layer ##
 ##################
 class MaskedLinear(nn.Module):
-    def __init__(self, in_features, out_features, mask_d, mask_o, info_SinhArcsinh):
+    def __init__(self, in_features, out_features, mask_d, mask_o, info_SinhArcsinh, device):
       
         super(MaskedLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.mask_d = mask_d
-        self.mask_o = mask_o
-        self.weight = nn.Parameter(torch.randn(out_features, in_features) * torch.sqrt(torch.tensor(2.0)/(out_features+in_features)))
-        self.bias = nn.Parameter(torch.randn(out_features)* torch.sqrt(torch.tensor(2.0)/(out_features+in_features)))
+        self.mask_d = mask_d.to(device)
+        self.mask_o = mask_o.to(device)
+        self.device = device
+        
+        self.weight = nn.Parameter(torch.randn(out_features, in_features, device=self.device) * torch.sqrt(torch.tensor(2.0)/(out_features+in_features)))
+        self.bias = nn.Parameter(torch.randn(out_features, device=self.device)* torch.sqrt(torch.tensor(2.0)/(out_features+in_features)))
         self.info_SinhArcsinh = info_SinhArcsinh # True -> SinhArcsinh activation, False -> no activation
         
         if(self.info_SinhArcsinh == True):
-            self.tail = nn.Parameter(torch.randn(out_features) * 0.1)
-            self.skewness = nn.Parameter(torch.randn(out_features) * 0.1)
+            self.tail = nn.Parameter(torch.randn(out_features, device=self.device) * 0.1)
+            self.skewness = nn.Parameter(torch.randn(out_features, device=self.device) * 0.1)
         else:
-            self.tail = nn.Parameter(torch.zeros(out_features))
-            self.skewness = nn.Parameter(torch.zeros(out_features))
+            self.tail = nn.Parameter(torch.zeros(out_features, device=self.device))
+            self.skewness = nn.Parameter(torch.zeros(out_features, device=self.device))
        
         
         assert mask_d.shape == (out_features, in_features), "Mask shape must match weight shape."
@@ -74,6 +76,7 @@ class MaskedLinear(nn.Module):
 
 
     def forward(self, x):
+        x = x.to(self.device)
         # Apply mask to weights
         masked_weight = torch.exp(self.weight) * self.mask_d + self.weight * self.mask_o
         # <- Xizhi's choice. Rather stable. 
@@ -87,7 +90,7 @@ class MaskedLinear(nn.Module):
 ## MLP with 1 hidden layer ##
 #############################
 class MaskedMLP_1_hidden_layer(nn.Module):
-    def __init__(self, nmat, ndim, alpha):
+    def __init__(self, nmat, ndim, alpha, device):
         super(MaskedMLP_1_hidden_layer, self).__init__()
         assert len(alpha) == 1
     
@@ -96,15 +99,15 @@ class MaskedMLP_1_hidden_layer(nn.Module):
         
         dim_in = nboson
         dim_out = nboson * alpha[0]
-        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks)
+        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks, device)
         info_SinhArcsinh = True
-        self.hidden_layer_1 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh)
+        self.hidden_layer_1 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh, device)
         
         dim_in = nboson * alpha[0]
         dim_out = nboson
-        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks)
+        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks, device)
         info_SinhArcsinh = False
-        self.output_layer = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh)
+        self.output_layer = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh, device)
         
     def forward(self, x):
         x = self.hidden_layer_1(x)
@@ -114,7 +117,7 @@ class MaskedMLP_1_hidden_layer(nn.Module):
 ## MLP with 2 hidden layers ##
 ##############################
 class MaskedMLP_2_hidden_layers(nn.Module):
-    def __init__(self, nmat, ndim, alpha):
+    def __init__(self, nmat, ndim, alpha, device):
         super(MaskedMLP_2_hidden_layers, self).__init__()
         assert len(alpha) == 2
     
@@ -123,21 +126,21 @@ class MaskedMLP_2_hidden_layers(nn.Module):
     
         dim_in = nboson
         dim_out = nboson * alpha[0]
-        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks)
+        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks, device)
         info_SinhArcsinh = True
-        self.hidden_layer_1 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh)
+        self.hidden_layer_1 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh, device)
 
         dim_in = nboson * alpha[0]
         dim_out = nboson * alpha[1]
-        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks)
+        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks, device)
         info_SinhArcsinh = True
-        self.hidden_layer_2 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh)
+        self.hidden_layer_2 = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh, device)
         
         dim_in = nboson * alpha[1]
         dim_out = nboson
-        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks)
+        mask_d, mask_o = get_weight_mask(dim_in, dim_out, num_blocks, device)
         info_SinhArcsinh = False
-        self.output_layer = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh)
+        self.output_layer = MaskedLinear(dim_in, dim_out, mask_d, mask_o, info_SinhArcsinh, device)
         
     def forward(self, x):
         x = self.hidden_layer_1(x)
@@ -149,7 +152,7 @@ class MaskedMLP_2_hidden_layers(nn.Module):
 ### Compute Jacobian matrix dx/dz and (log of) Jacobian abs[det(dx/dz)] ###
 ### Note that dx/dz is lower-triangle in BNAF       #######################
 ###########################################################################
-def log_Jacobian(model, zvec, batch_size, ndim, nmat):
+def log_Jacobian(model, zvec, batch_size, ndim, nmat, device):
     # Input validation
     assert isinstance(model, torch.nn.Module), "model must be a torch.nn.Module"
     assert isinstance(zvec, torch.Tensor), "zvec must be a torch.Tensor"
@@ -191,6 +194,11 @@ def log_Jacobian(model, zvec, batch_size, ndim, nmat):
     jacobian_matrix = torch.stack(jacobian_matrix)
     jacobian_matrix = jacobian_matrix.permute(0, 2, 1) # match the usual convention
     log_jac = torch.stack(log_jac)
+
+    log_jac = log_jac.to(device)
+    jacobian_matrix = jacobian_matrix.to(device)
+
+    
     return log_jac, jacobian_matrix
     
 
