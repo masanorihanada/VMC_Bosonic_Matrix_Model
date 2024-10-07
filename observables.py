@@ -14,16 +14,14 @@ def calc_potential(xvec, tHooft, mass, ndim, nmat, batch_size, device):
     #######################
     su_instance = matrices.SU(nmat, batch_size, device)
     xmat = su_instance.vector_to_matrix(xvec, ndim, nmat, batch_size)
-    commutator = torch.zeros((batch_size,nmat,nmat), dtype=torch.complex64, device=device)
-    quartic_values = []
-    for isample in range(batch_size):
-        quartic_value = 0
-        for idim in range(1,ndim):
-            for jdim in range(0,idim):
-                commutator = torch.matmul(xmat[isample, idim], xmat[isample, jdim]) - torch.matmul(xmat[isample, jdim], xmat[isample, idim])
-                quartic_value += 0.5 * tHooft / nmat * torch.sum(commutator * commutator.conj()).real
-        quartic_values.append(quartic_value)
-    potential += torch.stack(quartic_values).to(device)   
+
+    quartic_term = torch.zeros( batch_size ).to(device)
+    for idim in range(1,ndim):
+        for jdim in range(0,idim):
+            commutator =  torch.matmul(xmat[ : , idim], xmat[ : , jdim]) - torch.matmul(xmat[ : , jdim], xmat[ : , idim])
+            quartic_term += 0.5 * tHooft / nmat * torch.sum(commutator * commutator.conj(), dim = (1,2) ).real
+    potential += quartic_term
+    
     return potential
 ############################################
 ### kinetic term 0.5 * [(d/dx)log_psi]^2 ###
