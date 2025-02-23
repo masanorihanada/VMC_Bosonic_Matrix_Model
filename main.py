@@ -22,8 +22,8 @@ print(f'Using device: {device}')
 ###########################
 ## Simulation parameters ##
 ###########################
-nmat = 2  # matrix size N
-ndim = 2  # number of matrices
+nmat = 3  # matrix size N
+ndim = 3  # number of matrices
 nlayer = 1 # number of layers
 if(nlayer == 1):
         alpha = [2] # number of nodes, for nlayer = 1
@@ -39,14 +39,14 @@ num_epochs = 20
 num_batches = 1
 batch_size = 1024
 lr = 0.01 # learning rate
-info_load = True # True -> NN parameters are loaded from trained_parameters.pth, False -> nothing
+info_load = False # True -> NN parameters are loaded from trained_parameters.pth, False -> nothing
 info_save = True  # True -> NN parameters are saved in trained_parameters.pth, False -> nothing
 ############################################################################
 ## Caution! info_gauge = info_yq = True can make sense only if y = q = 0. ##
 ## Note also that info_yq = True makes sense only when batch_size is large.#
 ############################################################################
 info_gauge = False # True -> coeff_G * TrG^2 to the Hamiltonian 
-info_yq = True # True -> add c_{yq} * ( <\hat{x}> - y )^2 + ( <\hat{p}> - q )^2 to the loss function
+info_yq = False # True -> add c_{yq} * ( <\hat{x}> - y )^2 + ( <\hat{p}> - q )^2 to the loss function
 #############################################################
 ## We need to choose appropriate y and q if info_yq = True ##
 #############################################################
@@ -57,25 +57,26 @@ nboson = ndim * (nmat * nmat - 1)
 yvec = torch.zeros(1, nboson, requires_grad=False, device=device)
 qvec = torch.zeros(1, nboson, requires_grad=False, device=device)
 
-su_instance = matrices.SU(nmat, 1, device)
-ymat = su_instance.vector_to_matrix(yvec, ndim, nmat, 1).to(device)
-qmat = su_instance.vector_to_matrix(qvec, ndim, nmat, 1).to(device)
+if( info_yq == True ):
+        su_instance = matrices.SU(nmat, 1, device)
+        ymat = su_instance.vector_to_matrix(yvec, ndim, nmat, 1).to(device)
+        qmat = su_instance.vector_to_matrix(qvec, ndim, nmat, 1).to(device)
 
-probe_location = 1.41421356 # distance between D-branes
-probe_momentum = 1.41421356 # momentum of probe D-brane
+        probe_location = 1.41421356 # distance between D-branes
+        probe_momentum = 1.41421356 # momentum of probe D-brane
 
-ymat[0, 0, nmat-1, nmat-1] = probe_location
-qmat[0, 0, nmat-1, nmat-1] = probe_momentum
+        ymat[0, 0, nmat-1, nmat-1] = probe_location
+        qmat[0, 0, nmat-1, nmat-1] = probe_momentum
 
-for imat in range(nmat):# make ymat traceless
-        ymat[0, 0,imat,imat] += - probe_location/nmat
-        qmat[0, 0,imat,imat] += - probe_momentum/nmat
+        for imat in range(nmat):# make ymat traceless
+                ymat[0, 0,imat,imat] += - probe_location/nmat
+                qmat[0, 0,imat,imat] += - probe_momentum/nmat
         
-yvec = su_instance.matrix_to_vector(ymat, ndim, nmat, 1).to(device)
-qvec = su_instance.matrix_to_vector(qmat, ndim, nmat, 1).to(device)
+                yvec = su_instance.matrix_to_vector(ymat, ndim, nmat, 1).to(device)
+                qvec = su_instance.matrix_to_vector(qmat, ndim, nmat, 1).to(device)
 
-yvec = yvec.reshape(nboson).to(device)
-qvec = qvec.reshape(nboson).to(device)
+        yvec = yvec.reshape(nboson).to(device)
+        qvec = qvec.reshape(nboson).to(device)
 #################################
 ## Create model with the masks ##
 #################################

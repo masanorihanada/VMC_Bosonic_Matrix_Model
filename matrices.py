@@ -76,14 +76,14 @@ class SU():
                 ### off-diagonal part ###
                 #########################
                 for imat in range(1, nmat):#imat=1,2,...,nmat-1
-                # real and symmetric
+                    # real and symmetric
                     for jmat in range(0, nmat - imat):#jmat=0,1,...,nmat-imat-1
                         xtemp =  xmat[ibatch, idim, jmat, jmat + imat].real * sqrt2
                         xvec.append(xtemp)
-                        # imaginary and anti-symmetric
-                        for jmat in range(0, nmat - imat):#jmat=0,1,...,nmat-imat-1
-                            xtemp =  xmat[ibatch, idim, jmat + imat, jmat].imag * sqrt2
-                            xvec.append(xtemp)
+                    # imaginary and anti-symmetric
+                    for jmat in range(0, nmat - imat):#jmat=0,1,...,nmat-imat-1
+                        xtemp =  xmat[ibatch, idim, jmat + imat, jmat].imag * sqrt2
+                        xvec.append(xtemp)
                 #####################
                 ### diagonal part ###
                 #####################
